@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { addHistory, getHistory, type HistoryItem } from "@/lib/history";
 
 type DeliveryRecommendation = {
   name: string;
@@ -56,6 +57,11 @@ export default function DeliveryPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<DeliveryRecommendation[] | null>(null);
+  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+
+  useEffect(() => {
+    setHistoryItems(getHistory("delivery"));
+  }, [items]);
 
   const payload = useMemo(
     () => ({ situation, cuisine, price, spice }),
@@ -74,12 +80,43 @@ export default function DeliveryPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? "추천 요청 실패");
-      setItems(data.recommendations ?? []);
+      const list = data.recommendations ?? [];
+      setItems(list);
+      if (list.length > 0) {
+        addHistory(
+          "delivery",
+          payload,
+          list.map((x: DeliveryRecommendation) => x.name).join(", ")
+        );
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "알 수 없는 오류");
     } finally {
       setLoading(false);
     }
+  }
+
+  function applyHistory(item: HistoryItem) {
+    const input = item.input as {
+      situation?: string;
+      cuisine?: string;
+      price?: string;
+      spice?: string;
+    };
+    if (input.situation && situations.includes(input.situation as (typeof situations)[number])) {
+      setSituation(input.situation as (typeof situations)[number]);
+    }
+    if (input.cuisine && cuisines.some((c) => c.value === input.cuisine)) {
+      setCuisine(input.cuisine as (typeof cuisines)[number]["value"]);
+    }
+    if (input.price && prices.some((p) => p.value === input.price)) {
+      setPrice(input.price as (typeof prices)[number]["value"]);
+    }
+    if (input.spice && spices.some((s) => s.value === input.spice)) {
+      setSpice(input.spice as (typeof spices)[number]["value"]);
+    }
+    setError(null);
+    setItems(null);
   }
 
   return (
@@ -205,6 +242,25 @@ export default function DeliveryPage() {
             </button>
           </div>
         </section>
+
+        {historyItems.length > 0 ? (
+          <section className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+            <h3 className="text-sm font-semibold text-zinc-900">최근 검색</h3>
+            <ul className="mt-2 flex flex-wrap gap-2">
+              {historyItems.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => applyHistory(item)}
+                    className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700 shadow-sm hover:bg-zinc-100"
+                  >
+                    {item.summary}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         <section className="mt-6">
           {error ? (

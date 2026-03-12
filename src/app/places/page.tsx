@@ -1,18 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { addHistory, getHistory, type HistoryItem } from "@/lib/history";
 
 type Place = {
   name: string;
-  menu: string;
-  reason: string;
-  mapQuery: string;
+  address: string;
+  roadAddress: string;
+  placeUrl: string;
+  categoryName: string;
+  x: string;
+  y: string;
 };
-
-function kakaoMapUrl(q: string) {
-  return `https://map.kakao.com/?q=${encodeURIComponent(q)}`;
-}
 
 const situations = ["데이트", "친구모임", "회식", "가벼운 한 잔", "가족 외식"] as const;
 
@@ -23,6 +23,11 @@ export default function PlacesPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [places, setPlaces] = useState<Place[] | null>(null);
+  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+
+  useEffect(() => {
+    setHistoryItems(getHistory("places"));
+  }, [places]);
 
   async function onRecommend() {
     setLoading(true);
@@ -36,12 +41,32 @@ export default function PlacesPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? "추천 요청 실패");
-      setPlaces(data.places ?? []);
+      const list = data.places ?? [];
+      setPlaces(list);
+      if (list.length > 0) {
+        addHistory(
+          "places",
+          { situation, location },
+          list.map((p: Place) => p.name).join(", ")
+        );
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "알 수 없는 오류");
     } finally {
       setLoading(false);
     }
+  }
+
+  function applyHistory(item: HistoryItem) {
+    const input = item.input as { situation?: string; location?: string };
+    if (input.situation && situations.includes(input.situation as (typeof situations)[number])) {
+      setSituation(input.situation as (typeof situations)[number]);
+    }
+    if (input.location && typeof input.location === "string") {
+      setLocation(input.location);
+    }
+    setError(null);
+    setPlaces(null);
   }
 
   return (
@@ -53,7 +78,7 @@ export default function PlacesPage() {
               맛집 모드
             </h1>
             <p className="text-sm text-zinc-600">
-              상황과 위치 키워드를 입력하면 AI가 어울리는 맛집을 추천해줘요.
+              카카오 지도에 등록된 실제 맛집을 검색해요. 상황과 위치를 골라보세요.
             </p>
           </div>
           <Link
@@ -98,17 +123,15 @@ export default function PlacesPage() {
                 placeholder="예) 강남역, 홍대입구, 시청역"
               />
               <span className="text-xs text-zinc-500">
-                정확한 주소가 아니라, 지도에서 검색할 수 있는 정도의 키워드면
-                충분해요.
+                카카오 지도에 검색되는 지역명을 입력하세요.
               </span>
             </label>
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-xs text-zinc-500">
-              Gemini API 연동이 안 되어 있으면{" "}
-              <span className="font-mono">"Gemini API 연동 필요"</span> 오류가
-              표시됩니다.
+              <span className="font-mono">KAKAO_REST_API_KEY</span>가 없으면
+              &quot;Kakao API 연동 필요&quot; 오류가 표시됩니다.
             </div>
             <button
               type="button"
@@ -116,10 +139,29 @@ export default function PlacesPage() {
               disabled={loading || !location.trim()}
               className="h-11 rounded-xl bg-zinc-900 px-5 text-sm font-semibold text-white shadow-sm hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? "맛집 찾는 중..." : "맛집 추천 받기"}
+              {loading ? "맛집 검색 중..." : "맛집 검색"}
             </button>
           </div>
         </section>
+
+        {historyItems.length > 0 ? (
+          <section className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+            <h3 className="text-sm font-semibold text-zinc-900">최근 검색</h3>
+            <ul className="mt-2 flex flex-wrap gap-2">
+              {historyItems.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => applyHistory(item)}
+                    className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700 shadow-sm hover:bg-zinc-100"
+                  >
+                    {item.summary}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         <section className="mt-6">
           {error ? (
@@ -132,38 +174,36 @@ export default function PlacesPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               {places.map((p) => (
                 <div
-                  key={`${p.name}-${p.menu}`}
+                  key={p.placeUrl}
                   className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"
                 >
                   <div className="text-lg font-semibold text-zinc-950">
                     {p.name}
                   </div>
-                  <div className="mt-1 text-sm font-medium text-zinc-800">
-                    추천 메뉴: {p.menu}
+                  {p.categoryName ? (
+                    <div className="mt-1 text-xs text-zinc-500">
+                      {p.categoryName}
+                    </div>
+                  ) : null}
+                  <div className="mt-2 text-sm text-zinc-600">
+                    {p.roadAddress || p.address}
                   </div>
-                  <div className="mt-2 text-sm text-zinc-600">{p.reason}</div>
-                  <div className="mt-4 grid gap-2">
+                  <div className="mt-4">
                     <a
-                      href={kakaoMapUrl(p.mapQuery)}
+                      href={p.placeUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex h-11 items-center justify-center rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-500"
                     >
                       지도에서 보기
                     </a>
-                    <div className="rounded-xl bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
-                      지도 검색어:{" "}
-                      <span className="font-mono text-zinc-800">
-                        {p.mapQuery}
-                      </span>
-                    </div>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
             <div className="mt-10 text-center text-sm text-zinc-500">
-              아직 추천 결과가 없어요. 위에서 “맛집 추천 받기”를 눌러보세요.
+              아직 검색 결과가 없어요. 위에서 &quot;맛집 검색&quot;을 눌러보세요.
             </div>
           )}
         </section>
@@ -171,4 +211,3 @@ export default function PlacesPage() {
     </div>
   );
 }
-

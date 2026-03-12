@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { addHistory, getHistory, type HistoryItem } from "@/lib/history";
 
 type FridgeRecipe = {
   name: string;
@@ -20,12 +21,17 @@ function parseIngredients(input: string) {
 }
 
 export default function FridgePage() {
-  const [raw, setRaw] = useState("계란, 양파, 참치, 김치");
+  const [raw, setRaw] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recipes, setRecipes] = useState<FridgeRecipe[] | null>(null);
+  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
 
   const ingredients = useMemo(() => parseIngredients(raw), [raw]);
+
+  useEffect(() => {
+    setHistoryItems(getHistory("fridge"));
+  }, [recipes]);
 
   async function onRecommend() {
     setLoading(true);
@@ -39,12 +45,29 @@ export default function FridgePage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? "추천 요청 실패");
-      setRecipes(data.recipes ?? []);
+      const list = data.recipes ?? [];
+      setRecipes(list);
+      if (list.length > 0) {
+        addHistory(
+          "fridge",
+          { ingredients },
+          list.map((r: FridgeRecipe) => r.name).join(", ")
+        );
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "알 수 없는 오류");
     } finally {
       setLoading(false);
     }
+  }
+
+  function applyHistory(item: HistoryItem) {
+    const input = item.input as { ingredients?: string[] };
+    if (input.ingredients && Array.isArray(input.ingredients)) {
+      setRaw(input.ingredients.join(", "));
+    }
+    setError(null);
+    setRecipes(null);
   }
 
   return (
@@ -100,6 +123,25 @@ export default function FridgePage() {
             </button>
           </div>
         </section>
+
+        {historyItems.length > 0 ? (
+          <section className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+            <h3 className="text-sm font-semibold text-zinc-900">최근 검색</h3>
+            <ul className="mt-2 flex flex-wrap gap-2">
+              {historyItems.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => applyHistory(item)}
+                    className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700 shadow-sm hover:bg-zinc-100"
+                  >
+                    {item.summary}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         <section className="mt-6">
           {error ? (
